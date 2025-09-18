@@ -43,7 +43,6 @@ public class Shooter : MonoBehaviour
             return;
         }
 
-        // Hotkeys (optional)
         if (Input.GetKeyDown(startAutoKey))
         {
             StartAutoFire();
@@ -64,10 +63,6 @@ public class Shooter : MonoBehaviour
     // Public API
     // ----------------------
 
-    /// <summary>
-    /// Starts continuous firing: shoots on a cadence (shotInterval) without waiting for impacts.
-    /// Stops automatically when no bottom-row targets remain or ammo is depleted.
-    /// </summary>
     public void StartAutoFire()
     {
         if (isAutoFiring)
@@ -85,9 +80,6 @@ public class Shooter : MonoBehaviour
         autoFireRoutine = StartCoroutine(AutoFireLoop());
     }
 
-    /// <summary>
-    /// Stops continuous firing. Existing projectiles keep flying.
-    /// </summary>
     public void StopAutoFire()
     {
         if (!isAutoFiring)
@@ -106,10 +98,6 @@ public class Shooter : MonoBehaviour
         TryDestroySelfIfDepleted(); // in case we stopped with no ammo left and no shots in flight
     }
 
-    /// <summary>
-    /// Fires exactly one shot immediately if a bottom-row target exists and ammo > 0.
-    /// Does not affect auto-fire state.
-    /// </summary>
     public void FireOnceIfPossible()
     {
         if (board == null)
@@ -127,7 +115,7 @@ public class Shooter : MonoBehaviour
 
         int tx;
         int ty;
-        bool found = TryFindNextBottomRowMatchIgnoringReservations(board, cannonColor, out tx, out ty);
+        bool found = TryFindClosestBottomRowMatchIgnoringReservations(board, cannonColor, out tx, out ty);
 
         if (!found)
         {
@@ -137,6 +125,7 @@ public class Shooter : MonoBehaviour
         ReserveBottomCell(tx);
 
         Vector3 startPos;
+
         if (muzzle != null)
         {
             startPos = muzzle.position;
@@ -178,13 +167,14 @@ public class Shooter : MonoBehaviour
 
             int tx;
             int ty;
-            bool found = TryFindNextBottomRowMatchIgnoringReservations(board, cannonColor, out tx, out ty);
+            bool found = TryFindClosestBottomRowMatchIgnoringReservations(board, cannonColor, out tx, out ty);
 
             if (found)
             {
                 ReserveBottomCell(tx);
 
                 Vector3 startPos;
+
                 if (muzzle != null)
                 {
                     startPos = muzzle.position;
@@ -212,7 +202,6 @@ public class Shooter : MonoBehaviour
                 break;
             }
 
-            // Pace control: do not wait for impact; just wait the shotInterval.
             if (shotInterval > 0.0f)
             {
                 float t = 0.0f;
@@ -225,7 +214,6 @@ public class Shooter : MonoBehaviour
             }
             else
             {
-                // Safety yield
                 yield return null;
             }
         }
@@ -235,7 +223,6 @@ public class Shooter : MonoBehaviour
 
         // When we stop, clear reservations so a new session can re-target freely.
         ClearAllReservations();
-
         TryDestroySelfIfDepleted();
         yield break;
     }
@@ -249,7 +236,6 @@ public class Shooter : MonoBehaviour
         // Free the reservation for that bottom cell index regardless of outcome.
         UnreserveBottomCell(targetX);
 
-        // Gate: impact may happen after the board changed.
         if (board != null)
         {
             if (board.InBounds(targetX, targetY))
@@ -266,18 +252,15 @@ public class Shooter : MonoBehaviour
             }
         }
 
-        // Allow the collapse animation to proceed visually; we do not block firing on it.
-        // Nothing to do here other than decrement in-flight and possibly self-destruct.
         inFlightCount = Mathf.Max(0, inFlightCount - 1);
-
         TryDestroySelfIfDepleted();
     }
 
     // ----------------------
-    // Targeting Helpers
+    // Targeting Helpers (closest to muzzle)
     // ----------------------
 
-    private bool TryFindNextBottomRowMatchIgnoringReservations(Board b, BlockColor color, out int x, out int y)
+    private bool TryFindClosestBottomRowMatchIgnoringReservations(Board b, BlockColor color, out int x, out int y)
     {
         x = -1;
         y = -1;
@@ -295,6 +278,21 @@ public class Shooter : MonoBehaviour
         }
 
         EnsureReservationsAllocated();
+
+        Vector3 muzzlePos;
+
+        if (muzzle != null)
+        {
+            muzzlePos = muzzle.position;
+        }
+        else
+        {
+            muzzlePos = transform.position;
+        }
+
+        bool foundAny = false;
+        float bestDistSqr = float.PositiveInfinity;
+        int bestCol = -1;
 
         for (int col = 0; col < b.width; col++)
         {
@@ -315,12 +313,38 @@ public class Shooter : MonoBehaviour
                 continue;
             }
 
-            if (cell.Color == color)
+            if (cell.Color != color)
             {
-                x = col;
-                y = row;
-                return true;
+                continue;
             }
+
+            Vector3 center = b.CellToWorld(col, row);
+
+            float dx = center.x - muzzlePos.x;
+            float dy = center.y - muzzlePos.y;
+            float distSqr = dx * dx + dy * dy;
+
+            if (!foundAny)
+            {
+                foundAny = true;
+                bestDistSqr = distSqr;
+                bestCol = col;
+            }
+            else
+            {
+                if (distSqr < bestDistSqr)
+                {
+                    bestDistSqr = distSqr;
+                    bestCol = col;
+                }
+            }
+        }
+
+        if (foundAny)
+        {
+            x = bestCol;
+            y = row;
+            return true;
         }
 
         return false;
@@ -404,7 +428,6 @@ public class Shooter : MonoBehaviour
             return;
         }
 
-        // If auto-firing or shots are still in flight, wait until they finish.
         if (isAutoFiring)
         {
             return;
