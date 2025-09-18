@@ -38,7 +38,7 @@ public class Board : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Space))
+        if (Input.GetKeyDown(KeyCode.G))
         {
             DestroyAt(0, 0);
         }
@@ -83,6 +83,14 @@ public class Board : MonoBehaviour
     public bool InBounds(int x, int y)
     {
         return x >= 0 && y >= 0 && x < width && y < height;
+    }
+
+    public bool WorldToCell(Vector3 world, out int x, out int y)
+    {
+        Vector3 local = world - origin;
+        x = Mathf.FloorToInt(local.x / cellSize);
+        y = Mathf.FloorToInt(local.y / cellSize);
+        return InBounds(x, y);
     }
 
     public Vector3 CellToWorld(int x, int y)
