@@ -16,6 +16,13 @@ public class Projectile : MonoBehaviour
         speed = projectileSpeed;
         this.onArrive = onArrive;
         isActive = true;
+        gameObject.SetActive(true);
+    }
+
+    public void PrepareForPoolReturn()
+    {
+        isActive = false;
+        onArrive = null;
     }
 
     private void Update()

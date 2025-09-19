@@ -5,7 +5,7 @@ public class Shooter : MonoBehaviour
 {
     [Header("References")]
     public Board board;
-    public Projectile projectilePrefab;
+    public ProjectilePool projectilePool;
     public Transform muzzle;
 
     [Header("Cannon Config")]
@@ -38,7 +38,12 @@ public class Shooter : MonoBehaviour
 
     private void Update()
     {
-        if (board == null || projectilePrefab == null)
+        if (board == null)
+        {
+            return;
+        }
+
+        if (projectilePool == null)
         {
             return;
         }
@@ -95,12 +100,17 @@ public class Shooter : MonoBehaviour
 
         isAutoFiring = false;
         ClearAllReservations();
-        TryDestroySelfIfDepleted(); // in case we stopped with no ammo left and no shots in flight
+        TryDestroySelfIfDepleted();
     }
 
     public void FireOnceIfPossible()
     {
         if (board == null)
+        {
+            return;
+        }
+
+        if (projectilePool == null)
         {
             return;
         }
@@ -138,20 +148,30 @@ public class Shooter : MonoBehaviour
         Vector3 targetPoint = board.CellToWorld(tx, ty);
         targetPoint.z = targetPoint.z + zOffset;
 
+        Projectile proj = projectilePool.Get();
+        if (proj == null)
+        {
+            // Pool exhausted and not allowed to expand
+            UnreserveBottomCell(tx);
+            return;
+        }
+
         ammoCount = ammoCount - 1;
         inFlightCount = inFlightCount + 1;
 
-        Projectile proj = Instantiate(projectilePrefab);
+        int targetX = tx;
+        int targetY = ty;
+
         proj.LaunchToPoint(startPos, targetPoint, projectileSpeed, () =>
         {
-            OnProjectileArrive(tx, ty);
+            OnProjectileArrive_Pooled(proj, targetX, targetY);
         });
 
-        TryDestroySelfIfDepleted(); // may self-destruct later when inFlight hits 0
+        TryDestroySelfIfDepleted();
     }
 
     // ----------------------
-    // Core Loops
+    // Core Loop
     // ----------------------
 
     private IEnumerator AutoFireLoop()
@@ -185,20 +205,30 @@ public class Shooter : MonoBehaviour
                 }
 
                 Vector3 targetPoint = board.CellToWorld(tx, ty);
-                targetPoint.z += zOffset;
+                targetPoint.z = targetPoint.z + zOffset;
 
-                ammoCount--;
-                inFlightCount++;
-
-                Projectile proj = Instantiate(projectilePrefab);
-                proj.LaunchToPoint(startPos, targetPoint, projectileSpeed, () =>
+                Projectile proj = projectilePool.Get();
+                if (proj != null)
                 {
-                    OnProjectileArrive(tx, ty);
-                });
+                    ammoCount = ammoCount - 1;
+                    inFlightCount = inFlightCount + 1;
+
+                    int targetX = tx;
+                    int targetY = ty;
+
+                    proj.LaunchToPoint(startPos, targetPoint, projectileSpeed, () =>
+                    {
+                        OnProjectileArrive_Pooled(proj, targetX, targetY);
+                    });
+                }
+                else
+                {
+                    // Pool could not provide a projectile; free the reservation.
+                    UnreserveBottomCell(tx);
+                }
             }
             else
             {
-                // No current target on bottom row → stop auto firing.
                 break;
             }
 
@@ -221,19 +251,17 @@ public class Shooter : MonoBehaviour
         isAutoFiring = false;
         autoFireRoutine = null;
 
-        // When we stop, clear reservations so a new session can re-target freely.
         ClearAllReservations();
         TryDestroySelfIfDepleted();
         yield break;
     }
 
     // ----------------------
-    // Arrival & Destruction
+    // Arrival & Pool Return
     // ----------------------
 
-    private void OnProjectileArrive(int targetX, int targetY)
+    private void OnProjectileArrive_Pooled(Projectile proj, int targetX, int targetY)
     {
-        // Free the reservation for that bottom cell index regardless of outcome.
         UnreserveBottomCell(targetX);
 
         if (board != null)
@@ -253,11 +281,17 @@ public class Shooter : MonoBehaviour
         }
 
         inFlightCount = Mathf.Max(0, inFlightCount - 1);
+
+        if (projectilePool != null)
+        {
+            projectilePool.Release(proj);
+        }
+
         TryDestroySelfIfDepleted();
     }
 
     // ----------------------
-    // Targeting Helpers (closest to muzzle)
+    // Targeting: closest to muzzle
     // ----------------------
 
     private bool TryFindClosestBottomRowMatchIgnoringReservations(Board b, BlockColor color, out int x, out int y)
